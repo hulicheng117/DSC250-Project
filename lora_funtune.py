@@ -23,14 +23,16 @@ def load_data(dataset, tokenizer):
 
 def main():
     device="cuda" if torch.cuda.is_available() else "cpu"
+    print(device)
     dataset=load_dataset("Helsinki-NLP/opus-100", "en-zh")
-    model_name="Helsinki-NLP/opus-mt-en-zh" 
+    model_name="google-t5/t5-base" 
     tokenizer=AutoTokenizer.from_pretrained(model_name)
     model=AutoModelForSeq2SeqLM.from_pretrained(model_name)
     
+    
     lora_config=LoraConfig(
         r=8,
-        lora_alpha=16,
+        lora_alpha=32,
         target_modules=["q","k","v"],
         lora_dropout=0.1,
         bias="none",
@@ -41,13 +43,11 @@ def main():
     print_trainable_parameters(model)
     
     tokenized_datasets=dataset.map(lambda x: load_data(x, tokenizer), batched=True, remove_columns=["translation"])
-    print(f"Training data size: {len(tokenized_datasets['train'])} samples")
-    print(f"Validation data size: {len(tokenized_datasets['validation'])} samples")
-    print(f"Test data size: {len(tokenized_datasets['test'])} samples" if "test" in tokenized_datasets else "No test set available.")
+    
     
     training_args = TrainingArguments(
     output_dir="./lora_finetuned",
-    evaluation_strategy="epoch",
+    eval_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
@@ -60,13 +60,16 @@ def main():
     logging_steps=50,  
     report_to="tensorboard",  
 )
-    
+    train_subset= tokenized_datasets["train"].shuffle(seed=42).select(range(int(len(tokenized_datasets["train"]) * 0.02)))
+    print(f"Training data size: {len(train_subset)} samples")
+    print(f"Validation data size: {len(tokenized_datasets['validation'])} samples")
+    print(f"Test data size: {len(tokenized_datasets['test'])} samples" if "test" in tokenized_datasets else "No test set available.")
     trainer = Trainer(
         model=model,
-        train_dataset=tokenized_datasets["train"],
+        train_dataset=train_subset,
         eval_dataset=tokenized_datasets["validation"],
         args=training_args,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorForSeq2Seq(tokenizer, model=model)
     )
     
